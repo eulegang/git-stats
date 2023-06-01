@@ -1,7 +1,12 @@
 const std = @import("std");
 
+const MMap = @import("./mmap.zig").MMap;
+
+const linux = std.os.linux;
+
 pub fn main() !void {
     var args = std.process.args();
+    const stderr = std.io.getStdErr().writer();
 
     _ = args.next();
     var filename: [:0]const u8 = undefined;
@@ -9,18 +14,12 @@ pub fn main() !void {
     if (args.next()) |arg| {
         filename = arg;
     } else {
-        const stderr = std.io.getStdErr().writer();
         try stderr.print("need a path to work with\n", .{});
         std.process.exit(1);
     }
 
-    std.debug.print("filename: {s}\n", .{filename});
+    const content = try MMap.init(filename);
+    defer content.deinit();
 
-    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    const path = try std.fs.realpath(filename, &path_buf);
-
-    const file = try std.fs.openFileAbsolute(path, .{ .read = true });
-    defer file.close();
-
-    std.debug.print("path: {s}\n", .{path});
+    std.debug.print("content {s}\n", .{content.string()});
 }
