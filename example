@@ -1,0 +1,10 @@
+#!./zig-out/bin/git-stats
+
+# a comment!
+
+bind cloc = `tokei -o json`
+
+bind code = cloc | `jq .Total.code`
+bind comments = cloc | `jq .Total.comments`
+
+export code, comments
