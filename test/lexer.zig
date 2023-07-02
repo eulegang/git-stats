@@ -1,5 +1,5 @@
 const std = @import("std");
-const Lexer = @import("stats").lang.Lexer;
+const Lexer = @import("lang").Lexer;
 const Token = Lexer.Token;
 
 test "lexing" {
@@ -8,10 +8,10 @@ test "lexing" {
         \\
         \\# a comment!
         \\
-        \\bind cloc = `tokei -o json`
+        \\cloc = `tokei -o json`
         \\
-        \\bind code = cloc | `jq .Total.code`
-        \\bind comments = cloc | `jq .Total.comments`
+        \\code = cloc | `jq .Total.code`
+        \\comments = cloc | `jq .Total.comments`
         \\
         \\export code, comments
     ;
@@ -24,16 +24,12 @@ test "lexing" {
         .{ .token = Token.space, .content = "\n" },
         .{ .token = Token.comment, .content = "# a comment!\n" },
         .{ .token = Token.space, .content = "\n" },
-        .{ .token = Token.keyword, .content = "bind" },
-        .{ .token = Token.space, .content = " " },
         .{ .token = Token.ident, .content = "cloc" },
         .{ .token = Token.space, .content = " " },
         .{ .token = Token.assign, .content = "=" },
         .{ .token = Token.space, .content = " " },
         .{ .token = Token.exec, .content = "`tokei -o json`" },
         .{ .token = Token.space, .content = "\n\n" },
-        .{ .token = Token.keyword, .content = "bind" },
-        .{ .token = Token.space, .content = " " },
         .{ .token = Token.ident, .content = "code" },
         .{ .token = Token.space, .content = " " },
         .{ .token = Token.assign, .content = "=" },
@@ -44,8 +40,6 @@ test "lexing" {
         .{ .token = Token.space, .content = " " },
         .{ .token = Token.exec, .content = "`jq .Total.code`" },
         .{ .token = Token.space, .content = "\n" },
-        .{ .token = Token.keyword, .content = "bind" },
-        .{ .token = Token.space, .content = " " },
         .{ .token = Token.ident, .content = "comments" },
         .{ .token = Token.space, .content = " " },
         .{ .token = Token.assign, .content = "=" },

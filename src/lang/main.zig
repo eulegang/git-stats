@@ -1,1 +1,1 @@
-pub const Lexer = @import("lex.zig").Lexer;
+pub const Lexer = @import("lexer.zig").Lexer;

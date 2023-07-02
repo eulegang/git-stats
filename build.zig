@@ -2,10 +2,18 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const sym = b.addModule("sym", .{ .source_file = .{ .path = "./deps/sym/src/main.zig" } });
-    const stats = b.addModule("stats", .{
-        .source_file = .{ .path = "src/main.zig" },
+    const lang = b.addModule("lang", .{
+        .source_file = .{ .path = "src/lang/main.zig" },
         .dependencies = &[_]std.Build.ModuleDependency{
             .{ .name = "sym", .module = sym },
+        },
+    });
+
+    const stats = b.addModule("stats", .{
+        .source_file = .{ .path = "src/git-stats/main.zig" },
+        .dependencies = &[_]std.Build.ModuleDependency{
+            .{ .name = "sym", .module = sym },
+            .{ .name = "lang", .module = lang },
         },
     });
 
@@ -14,12 +22,13 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "git-stats",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = .{ .path = "src/git-stats/main.zig" },
         .target = target,
         .optimize = optimize,
     });
 
     exe.addModule("sym", sym);
+    exe.addModule("lang", lang);
 
     b.installArtifact(exe);
 
@@ -41,6 +50,7 @@ pub fn build(b: *std.Build) void {
 
     unit_tests.addModule("sym", sym);
     unit_tests.addModule("stats", stats);
+    unit_tests.addModule("lang", lang);
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");

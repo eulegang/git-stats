@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const MMap = @import("./mmap.zig").MMap;
-pub const lang = @import("./lang/main.zig");
+pub const lang = @import("lang");
 
 pub fn main() !void {
     var args = std.process.args();
