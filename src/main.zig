@@ -1,9 +1,7 @@
 const std = @import("std");
 
 const MMap = @import("./mmap.zig").MMap;
-const lang = @import("./lang.zig");
-
-const linux = std.os.linux;
+pub const lang = @import("./lang/main.zig");
 
 pub fn main() !void {
     var args = std.process.args();
@@ -22,10 +20,10 @@ pub fn main() !void {
     const content = try MMap.init(filename);
     defer content.deinit();
 
-    var lexer = lang.Lexer.init(content.string());
-    while (try lexer.sig()) |token| {
-        std.debug.print("token: {}\n", .{token});
-    }
+    //var lexer = lang.Lexer.init(content.string());
+    //while (try lexer.sig()) |token| {
+    //    std.debug.print("token: {}\n", .{token});
+    //}
 
-    std.debug.print("content {s}\n", .{content.string()});
+    //std.debug.print("content {s}\n", .{content.string()});
 }
