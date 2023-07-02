@@ -1,10 +1,12 @@
 #!./zig-out/bin/git-stats
 
-# a comment!
+# get stats on a code base
+cloc = `tokei -o json`
 
-bind cloc = `tokei -o json`
+# extract a pattern out of some json content
+jq pattern = `jq ${pattern}`
 
-bind code = cloc | `jq .Total.code`
-bind comments = cloc | `jq .Total.comments`
+code = cloc | jq '.Total.code'
+comments = cloc | jq '.Total.comments'
 
 export code, comments
