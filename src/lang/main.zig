@@ -1,1 +1,2 @@
-pub const Lexer = @import("lexer.zig").Lexer;
+pub usingnamespace @import("lexer.zig");
+pub usingnamespace @import("parser.zig");
