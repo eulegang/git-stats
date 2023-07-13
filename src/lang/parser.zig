@@ -34,6 +34,14 @@ pub const Parser = struct {
         };
     }
 
+    fn subparser(self: *Parser, lexer: *Lexer) Self {
+        return Self{
+            .alloc = self.alloc,
+            .symbols = self.symbols,
+            .lexer = lexer.iter(),
+        };
+    }
+
     pub fn parse(_: *Self) Error!*Prog {
         unreachable;
     }
@@ -44,6 +52,13 @@ pub const Parser = struct {
 
     pub fn free(self: *Self, arg: anytype) void {
         switch (@TypeOf(arg)) {
+            Prog => {},
+
+            *Prog => {
+                self.free(arg.*);
+                self.alloc.destroy(arg);
+            },
+
             Expr => switch (arg) {
                 .ident => {},
                 .infix => |i| self.free(i),
@@ -73,6 +88,27 @@ pub const Parser = struct {
                     self.free(interp);
                 }
                 self.free(arg.content);
+            },
+
+            Str => {
+                switch (arg) {
+                    .lit => |s| self.free(s),
+                    .fmt => |f| self.free(f),
+                }
+            },
+
+            Fmt => {
+                for (arg.statics.items) |s| {
+                    self.free(s);
+                }
+
+                arg.statics.deinit();
+
+                for (arg.exprs.items) |e| {
+                    self.free(e);
+                }
+
+                arg.exprs.deinit();
             },
 
             []const u8 => {
@@ -212,22 +248,10 @@ pub const Parser = struct {
     }
 
     fn parse_str(self: *Self, slice: []const u8) Error!*Expr {
-        var buf = try self.alloc.alloc(u8, slice.len - 2);
-        var escaped = false;
-        var i: usize = 0;
-        for (slice[1 .. slice.len - 1]) |byte| {
-            if (byte == '\\') {
-                escaped = true;
-            } else if (escaped) {
-                escaped = false;
-            } else {
-                buf[i] = byte;
-                i += 1;
-            }
-        }
+        var str = try self.interp_str(slice[1 .. slice.len - 1]);
 
         var res = try self.alloc.create(Expr);
-        res.* = Expr{ .str = buf };
+        res.* = Expr{ .str = str };
         return res;
     }
 
@@ -237,31 +261,18 @@ pub const Parser = struct {
             return Error.Expected;
         }
 
-        var buf = try self.alloc.alloc(u8, slice.len - 2);
-        errdefer self.alloc.free(buf);
-
         var res = try self.alloc.create(Expr);
         errdefer self.alloc.destroy(res);
 
-        var escaped = false;
         var i: usize = 0;
 
         if (slice[1] != '`' and slice[2] != '`') {
-            for (slice[1 .. slice.len - 1]) |byte| {
-                if (byte == '\\') {
-                    escaped = true;
-                } else if (escaped) {
-                    escaped = false;
-                } else {
-                    buf[i] = byte;
-                    i += 1;
-                }
-            }
+            var str = try self.interp_str(slice[1 .. slice.len - 1]);
 
             res.* = Expr{
                 .exec = Exec{
                     .interp = null,
-                    .content = buf,
+                    .content = str,
                 },
             };
         } else {
@@ -279,33 +290,55 @@ pub const Parser = struct {
             else
                 slice[3..nl];
 
-            var interp = try self.alloc.alloc(u8, interp_section.len);
-            errdefer self.alloc.free(interp);
-            @memcpy(interp, interp_section);
+            var interp = try self.interp_str(interp_section);
+            errdefer self.free(interp);
 
-            i = 0;
-            for (slice[nl + 1 .. slice.len - 2]) |byte| {
-                if (byte == '\\') {
-                    escaped = true;
-                } else if (escaped) {
-                    escaped = false;
-                } else {
-                    buf[i] = byte;
-                    i += 1;
-                }
-            }
-
-            _ = self.alloc.resize(buf, i);
+            var content = try self.interp_str(slice[nl + 1 .. slice.len - 2]);
 
             res.* = Expr{
                 .exec = Exec{
                     .interp = interp,
-                    .content = buf[0..i],
+                    .content = content,
                 },
             };
         }
 
         return res;
+    }
+
+    fn interp_str(self: *Self, slice: []const u8) Error!Str {
+        var fmt = false;
+        var i: usize = 0;
+        var dollar = false;
+
+        while (i < slice.len) : (i += 1) {
+            if (dollar) {
+                switch (slice[i]) {
+                    '{' => {
+                        fmt = true;
+                        break;
+                    },
+
+                    '$' => {
+                        dollar = false;
+                    },
+
+                    else => {
+                        return Error.Expected;
+                    },
+                }
+            } else {
+                if (slice[i] == '$') {
+                    dollar = true;
+                }
+            }
+        }
+
+        if (fmt) {
+            return build_dyn_str(self, slice);
+        } else {
+            return build_static_str(self.alloc, slice);
+        }
     }
 };
 
@@ -321,11 +354,11 @@ pub const Prog = struct {
     ) !void {
         try writer.print("(prog\n", .{});
 
-        for (self.binds) |bind| {
+        for (self.binds.items) |bind| {
             try writer.print("  {}", .{bind});
         }
 
-        for (self.exports) |e| {
+        for (self.exports.items) |e| {
             try writer.print("  {}", .{e});
         }
 
@@ -337,7 +370,7 @@ pub const Expr = union(enum) {
     ident: u64,
     infix: Infix,
     call: FunCall,
-    str: []const u8,
+    str: Str,
     exec: Exec,
 
     pub fn format(e: *const Expr, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
@@ -345,7 +378,7 @@ pub const Expr = union(enum) {
             .ident => |i| try writer.print("(id {})", .{i}),
             .infix => |i| try writer.print("{}", .{i}),
             .call => |i| try writer.print("{}", .{i}),
-            .str => |i| try writer.print("\"{s}\"", .{i}),
+            .str => |i| try writer.print("{}", .{i}),
             .exec => |i| try writer.print("{}", .{i}),
         }
     }
@@ -383,8 +416,8 @@ pub const Infix = struct {
 };
 
 pub const Exec = struct {
-    interp: ?[]const u8,
-    content: []const u8,
+    interp: ?Str,
+    content: Str,
 
     pub fn format(
         self: *const Exec,
@@ -393,9 +426,9 @@ pub const Exec = struct {
         writer: anytype,
     ) !void {
         if (self.interp) |interp| {
-            try writer.print("(script \"{s}\" \"{s}\")", .{ interp, self.content });
+            try writer.print("(script {} {})", .{ interp, self.content });
         } else {
-            try writer.print("(shellout \"{s}\")", .{self.content});
+            try writer.print("(shellout {})", .{self.content});
         }
     }
 };
@@ -433,7 +466,7 @@ pub const Export = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        try writer.print("(export id[{}] id[{}])", .{ self.inner, self.outer });
+        try writer.print("(export (id {}) (id {}))", .{ self.inner, self.outer });
     }
 };
 
@@ -451,6 +484,164 @@ pub const Bind = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        try writer.print("(bind id[{}] {})", self.name, self.expr);
+        try writer.print("(bind (id {}) {})", .{ self.name, self.expr });
     }
 };
+
+const Str = union(enum) {
+    lit: []const u8,
+    fmt: Fmt,
+
+    pub fn format(
+        self: *const Str,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self.*) {
+            .lit => |s| try writer.print("\"{s}\"", .{s}),
+            .fmt => |f| try writer.print("{}", .{f}),
+        }
+    }
+};
+
+const Fmt = struct {
+    statics: std.ArrayList([]const u8),
+    exprs: std.ArrayList(*Expr),
+
+    pub fn format(
+        self: *const Fmt,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        var i: usize = 0;
+        try writer.print("(format", .{});
+
+        while (i < self.statics.items.len) : (i += 1) {
+            try writer.print(" \"{s}\"", .{self.statics.items[i]});
+            if (i < self.exprs.items.len) {
+                try writer.print(" {}", .{self.exprs.items[i]});
+            }
+        }
+
+        try writer.print(")", .{});
+    }
+};
+
+fn build_static_str(alloc: std.mem.Allocator, slice: []const u8) Parser.Error!Str {
+    var buf = try alloc.alloc(u8, slice.len);
+    errdefer alloc.free(buf);
+    var escaped = false;
+    var i: usize = 0;
+
+    for (slice) |byte| {
+        if (byte == '$') {
+            escaped = true;
+        } else if (escaped) {
+            if (byte == '$') {
+                buf[i] = byte;
+                i += 1;
+            }
+            escaped = false;
+        } else {
+            buf[i] = byte;
+            i += 1;
+        }
+    }
+
+    if (i < slice.len) {
+        _ = alloc.resize(buf, i);
+    }
+
+    return Str{ .lit = buf };
+}
+
+fn build_dyn_str(parser: *Parser, slice: []const u8) Parser.Error!Str {
+    var alloc = parser.alloc;
+    var statics = std.ArrayList([]const u8).init(alloc);
+    errdefer statics.deinit();
+
+    errdefer for (statics.items) |s| {
+        alloc.free(s);
+    };
+
+    var exprs = std.ArrayList(*Expr).init(alloc);
+    errdefer exprs.deinit();
+
+    errdefer for (exprs.items) |e| {
+        parser.free(e);
+    };
+
+    var scratch = try alloc.alloc(u8, slice.len);
+    defer alloc.free(scratch);
+
+    var i: usize = 0;
+    var scratch_next: usize = 0;
+    var dollar = false;
+
+    while (i < slice.len) : (i += 1) {
+        if (dollar) {
+            switch (slice[i]) {
+                '$' => {
+                    scratch[scratch_next] = '$';
+                    scratch_next += 1;
+                },
+                '{' => {
+                    i += 1;
+                    if (i >= slice.len)
+                        return Parser.Error.Expected;
+
+                    var j = i;
+
+                    while (j < slice.len) : (j += 1) {
+                        if (slice[j] == '}')
+                            break;
+                    }
+
+                    if (j == slice.len)
+                        return Parser.Error.Expected;
+
+                    const src = scratch[0..scratch_next];
+                    var buf = try alloc.alloc(u8, scratch_next);
+                    scratch_next = 0;
+
+                    @memcpy(buf, src);
+                    try statics.append(buf);
+
+                    var lexer = Lexer.init(slice[i..j]);
+                    var sub = parser.subparser(&lexer);
+                    var expr = try sub.parse_expr();
+                    try exprs.append(expr);
+
+                    i = j + 1;
+                },
+                else => return Parser.Error.Expected,
+            }
+        } else {
+            switch (slice[i]) {
+                '$' => {
+                    dollar = true;
+                },
+
+                else => {
+                    scratch[scratch_next] = slice[i];
+                    scratch_next += 1;
+                },
+            }
+        }
+    }
+
+    const src = scratch[0..scratch_next];
+    var buf = try alloc.alloc(u8, scratch_next);
+
+    @memcpy(buf, src);
+    try statics.append(buf);
+
+    return Str{
+        .fmt = Fmt{
+            .statics = statics,
+            .exprs = exprs,
+        },
+    };
+}

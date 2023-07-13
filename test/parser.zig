@@ -17,8 +17,6 @@ fn test_parse_expr(expect: []const u8, input: []const u8) !void {
     defer std.testing.allocator.free(s);
 
     try std.testing.expectEqualSlices(u8, expect, s);
-
-    //try std.testing.expectFmt(expect, "{}", .{expr});
 }
 
 //test "example parsing" {
@@ -26,21 +24,33 @@ fn test_parse_expr(expect: []const u8, input: []const u8) !void {
 //        \\#!/usr/bin/env git-stats
 //        \\
 //        \\cloc = `tokei -o json`
-//        \\jq pattern = `jq ${pattern}`
+//        \\jq(pattern) = `jq ${pattern}`
 //        \\
-//        \\code = cloc | jq ".Total.code"
-//        \\comments = cloc | jq ".Total.comments"
+//        \\code = cloc | jq(".Total.code")
+//        \\comments = cloc | jq(".Total.comments")
 //        \\export code, comments
 //    ;
+//
+//    const ast = "(prog " ++
+//        "(bind (id 0) (shellout \"tokei -o json\")) " ++
+//        "(func (id 1) ((id 2)) (shellout (format \"jq \" (id 2)))) " ++
+//        "(bind (id 3) (pipe (id 0) (apply (id 1) \".Total.code\"))) " ++
+//        "(bind (id 4) (pipe (id 0) (apply (id 1) \".Total.comments\"))) " ++
+//        "(export (id 3) (id 3)) " ++
+//        "(export (id 4) (id 4)) " ++
+//        ")";
+//    _ = ast;
 //
 //    var lexer = lang.Lexer.init(example);
 //    var symbols = try sym.Symbols.init(std.testing.allocator);
 //    defer symbols.deinit();
 //
-//    var parser = lang.Parser.init(std.testing.allocator, &symbols);
+//    var parser = lang.Parser.init(std.testing.allocator, &symbols, &lexer);
+//    var prog = try parser.parse();
+//    defer parser.free(prog);
 //
-//    _ = parser;
-//    _ = lexer;
+//    const s = try std.fmt.allocPrint(std.testing.allocator, "{}", .{prog});
+//    _ = s;
 //}
 
 test "parse: cloc" {
@@ -78,5 +88,19 @@ test "parse: \"hello world\" | ```/usr/bin/env python3\nprint(\"hello world\")\n
     try test_parse_expr(
         "(pipe \"hello world\" (script \"/usr/bin/env python3\" \"print(\"hello world\")\n\"))",
         "\"hello world\" | ```/usr/bin/env python3\nprint(\"hello world\")\n```\n",
+    );
+}
+
+test "parse: `jq ${pattern}" {
+    try test_parse_expr(
+        "(shellout (format \"jq \" (id 0) \"\"))",
+        "`jq ${pattern}`",
+    );
+}
+
+test "parse: \"hello ${subject}\"" {
+    try test_parse_expr(
+        "(format \"hello \" (id 0) \"\")",
+        "\"hello ${subject}\"",
     );
 }
