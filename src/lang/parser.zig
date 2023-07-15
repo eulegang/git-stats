@@ -18,6 +18,8 @@ const Precedence = enum {
     }
 };
 
+const Ident = u64;
+
 pub const Parser = struct {
     pub const Error = Lexer.Error || std.mem.Allocator.Error || sym.Error || error{Expected};
     const Self = @This();
@@ -42,8 +44,172 @@ pub const Parser = struct {
         };
     }
 
-    pub fn parse(_: *Self) Error!*Prog {
-        unreachable;
+    pub fn parse(self: *Self) Error!*Prog {
+        var binds = std.ArrayList(Bind).init(self.alloc);
+        errdefer {
+            for (binds.items) |b| {
+                self.free(b);
+            }
+            binds.deinit();
+        }
+
+        var exports = std.ArrayList(Export).init(self.alloc);
+        errdefer {
+            for (exports.items) |e| {
+                self.free(e);
+            }
+            exports.deinit();
+        }
+
+        var funcs = std.ArrayList(Func).init(self.alloc);
+        errdefer {
+            for (funcs.items) |e| {
+                self.free(e);
+            }
+            funcs.deinit();
+        }
+
+        while (true) {
+            var token = try self.lexer.sig() orelse break;
+            while (token == .endline) {
+                token = try self.lexer.sig() orelse break;
+            }
+
+            switch (token) {
+                .eksport => {
+                    token = try self.lexer.sig() orelse break;
+                    var inner: Ident = 0;
+                    var outer: Ident = 0;
+                    while (true) {
+                        if (token == .endline) {
+                            break;
+                        }
+
+                        inner = try self.symbols.intern(self.lexer.slice());
+
+                        token = try self.lexer.sig() orelse {
+                            outer = inner;
+
+                            try exports.append(Export{
+                                .inner = inner,
+                                .outer = outer,
+                            });
+
+                            break;
+                        };
+
+                        if (token == .comma) {
+                            outer = inner;
+
+                            try exports.append(Export{
+                                .inner = inner,
+                                .outer = outer,
+                            });
+
+                            token = try self.lexer.sig() orelse break;
+
+                            continue;
+                        }
+
+                        if (token == .endline) {
+                            outer = inner;
+
+                            try exports.append(Export{
+                                .inner = inner,
+                                .outer = outer,
+                            });
+                            break;
+                        }
+
+                        if (token == .az) {
+                            token = try self.lexer.sig() orelse return Error.Expected;
+
+                            if (token != .ident) {
+                                return Error.Expected;
+                            }
+
+                            outer = try self.symbols.intern(self.lexer.slice());
+
+                            try exports.append(Export{
+                                .inner = inner,
+                                .outer = outer,
+                            });
+
+                            token = try self.lexer.sig() orelse break;
+                            continue;
+                        }
+
+                        return Error.Expected;
+                    }
+                },
+                .ident => {
+                    const ident = self.lexer.slice();
+                    token = try self.lexer.sig() orelse return Error.Expected;
+
+                    switch (token) {
+                        .lparen => {
+                            const func_ident = try self.symbols.intern(ident);
+                            var args = std.ArrayList(u64).init(self.alloc);
+                            token = try self.lexer.sig() orelse return Error.Expected;
+
+                            while (true) {
+                                if (token == .rparen)
+                                    break;
+
+                                if (token != .ident)
+                                    return Error.Expected;
+
+                                try args.append(try self.symbols.intern(self.lexer.slice()));
+
+                                token = try self.lexer.sig() orelse return Error.Expected;
+
+                                if (token == .rparen)
+                                    break;
+
+                                if (token != .comma)
+                                    return Error.Expected;
+                            }
+
+                            token = try self.lexer.sig() orelse return Error.Expected;
+                            if (token != .assign)
+                                return Error.Expected;
+
+                            var expr = try self.parse_expr();
+
+                            try funcs.append(Func{
+                                .ident = func_ident,
+                                .args = args,
+                                .expr = expr,
+                            });
+                        },
+
+                        .assign => {
+                            var bind = Bind{
+                                .name = try self.symbols.intern(ident),
+                                .expr = try self.parse_expr(),
+                            };
+
+                            try binds.append(bind);
+                        },
+                        else => {
+                            std.debug.print("next: {}\n", .{token});
+                            unreachable;
+                        },
+                    }
+                },
+
+                else => return Error.Expected,
+            }
+        }
+
+        var prog = try self.alloc.create(Prog);
+        prog.* = Prog{
+            .binds = binds,
+            .funcs = funcs,
+            .exports = exports,
+        };
+
+        return prog;
     }
 
     pub fn parse_expr(self: *Self) Error!*Expr {
@@ -52,7 +218,22 @@ pub const Parser = struct {
 
     pub fn free(self: *Self, arg: anytype) void {
         switch (@TypeOf(arg)) {
-            Prog => {},
+            Prog => {
+                for (arg.binds.items) |b| {
+                    self.free(b);
+                }
+
+                arg.binds.deinit();
+
+                for (arg.exports.items) |e| {
+                    self.free(e);
+                }
+
+                arg.exports.deinit();
+
+                for (arg.funcs.items) |f| self.free(f);
+                arg.funcs.deinit();
+            },
 
             *Prog => {
                 self.free(arg.*);
@@ -109,6 +290,17 @@ pub const Parser = struct {
                 }
 
                 arg.exprs.deinit();
+            },
+
+            Bind => {
+                self.free(arg.expr);
+            },
+
+            Export => {},
+
+            Func => {
+                arg.args.deinit();
+                self.free(arg.expr);
             },
 
             []const u8 => {
@@ -257,7 +449,6 @@ pub const Parser = struct {
 
     fn parse_exec(self: *Self, slice: []const u8) Error!*Expr {
         if (slice.len < 3) {
-            std.debug.print("slice: \"{s}\"\n", .{slice});
             return Error.Expected;
         }
 
@@ -344,6 +535,7 @@ pub const Parser = struct {
 
 pub const Prog = struct {
     binds: std.ArrayList(Bind),
+    funcs: std.ArrayList(Func),
     exports: std.ArrayList(Export),
 
     pub fn format(
@@ -352,17 +544,21 @@ pub const Prog = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        try writer.print("(prog\n", .{});
+        try writer.print("(prog", .{});
 
         for (self.binds.items) |bind| {
-            try writer.print("  {}", .{bind});
+            try writer.print(" {}", .{bind});
+        }
+
+        for (self.funcs.items) |func| {
+            try writer.print(" {}", .{func});
         }
 
         for (self.exports.items) |e| {
-            try writer.print("  {}", .{e});
+            try writer.print(" {}", .{e});
         }
 
-        try writer.print(")\n", .{});
+        try writer.print(")", .{});
     }
 };
 
@@ -476,7 +672,7 @@ pub const Bind = struct {
     name: u64,
 
     /// An expression to be evaluated
-    expr: Expr,
+    expr: *Expr,
 
     pub fn format(
         self: *const Bind,
@@ -485,6 +681,34 @@ pub const Bind = struct {
         writer: anytype,
     ) !void {
         try writer.print("(bind (id {}) {})", .{ self.name, self.expr });
+    }
+};
+
+pub const Func = struct {
+    ident: Ident,
+    args: std.ArrayList(u64),
+    expr: *Expr,
+
+    pub fn format(
+        self: *const Func,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("(func (id {}) (", .{self.ident});
+
+        var i: usize = 0;
+
+        if (i < self.args.items.len) {
+            try writer.print("(id {})", .{self.args.items[i]});
+            i += 1;
+        }
+
+        while (i < self.args.items.len) : (i += 1) {
+            try writer.print(" (id {})", .{self.args.items[i]});
+        }
+
+        try writer.print(") {})", .{self.expr});
     }
 };
 

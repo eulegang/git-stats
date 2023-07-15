@@ -19,39 +19,40 @@ fn test_parse_expr(expect: []const u8, input: []const u8) !void {
     try std.testing.expectEqualSlices(u8, expect, s);
 }
 
-//test "example parsing" {
-//    const example =
-//        \\#!/usr/bin/env git-stats
-//        \\
-//        \\cloc = `tokei -o json`
-//        \\jq(pattern) = `jq ${pattern}`
-//        \\
-//        \\code = cloc | jq(".Total.code")
-//        \\comments = cloc | jq(".Total.comments")
-//        \\export code, comments
-//    ;
-//
-//    const ast = "(prog " ++
-//        "(bind (id 0) (shellout \"tokei -o json\")) " ++
-//        "(func (id 1) ((id 2)) (shellout (format \"jq \" (id 2)))) " ++
-//        "(bind (id 3) (pipe (id 0) (apply (id 1) \".Total.code\"))) " ++
-//        "(bind (id 4) (pipe (id 0) (apply (id 1) \".Total.comments\"))) " ++
-//        "(export (id 3) (id 3)) " ++
-//        "(export (id 4) (id 4)) " ++
-//        ")";
-//    _ = ast;
-//
-//    var lexer = lang.Lexer.init(example);
-//    var symbols = try sym.Symbols.init(std.testing.allocator);
-//    defer symbols.deinit();
-//
-//    var parser = lang.Parser.init(std.testing.allocator, &symbols, &lexer);
-//    var prog = try parser.parse();
-//    defer parser.free(prog);
-//
-//    const s = try std.fmt.allocPrint(std.testing.allocator, "{}", .{prog});
-//    _ = s;
-//}
+test "example parsing" {
+    const example =
+        \\#!/usr/bin/env git-stats
+        \\
+        \\cloc = `tokei -o json`
+        \\jq(pattern) = `jq ${pattern}`
+        \\
+        \\code = cloc | jq(".Total.code")
+        \\comments = cloc | jq(".Total.comments")
+        \\export code, comments
+    ;
+
+    const ast = "(prog " ++
+        "(bind (id 0) (shellout \"tokei -o json\")) " ++
+        "(bind (id 3) (pipe (id 0) (apply (id 1) \".Total.code\"))) " ++
+        "(bind (id 4) (pipe (id 0) (apply (id 1) \".Total.comments\"))) " ++
+        "(func (id 1) ((id 2)) (shellout (format \"jq \" (id 2) \"\"))) " ++
+        "(export (id 3) (id 3)) " ++
+        "(export (id 4) (id 4))" ++
+        ")";
+
+    var lexer = lang.Lexer.init(example);
+    var symbols = try sym.Symbols.init(std.testing.allocator);
+    defer symbols.deinit();
+
+    var parser = lang.Parser.init(std.testing.allocator, &symbols, &lexer);
+    var prog = try parser.parse();
+    defer parser.free(prog);
+
+    const s = try std.fmt.allocPrint(std.testing.allocator, "{}", .{prog});
+    defer std.testing.allocator.free(s);
+
+    try std.testing.expectEqualSlices(u8, ast, s);
+}
 
 test "parse: cloc" {
     try test_parse_expr("(id 0)", "cloc\n");
