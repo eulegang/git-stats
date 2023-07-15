@@ -1,3 +1,6 @@
 [submodule "deps/sym"]
 	path = deps/sym
 	url = ssh://github.com/eulegang/sym
+[submodule "deps/libgit2"]
+	path = deps/libgit2
+	url = ssh://github.com/libgit2/libgit2
