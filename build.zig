@@ -9,11 +9,16 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const git = b.addModule("git", .{
+        .source_file = .{ .path = "src/git/main.zig" },
+    });
+
     const stats = b.addModule("stats", .{
         .source_file = .{ .path = "src/git-stats/main.zig" },
         .dependencies = &[_]std.Build.ModuleDependency{
             .{ .name = "sym", .module = sym },
             .{ .name = "lang", .module = lang },
+            .{ .name = "git", .module = git },
         },
     });
 
@@ -29,6 +34,12 @@ pub fn build(b: *std.Build) void {
 
     exe.addModule("sym", sym);
     exe.addModule("lang", lang);
+    exe.addModule("git", git);
+
+    exe.linkLibC();
+    exe.addIncludePath("/usr/local/include/");
+    exe.addLibraryPath("/usr/local/lib64/");
+    exe.linkSystemLibrary("libgit2");
 
     b.installArtifact(exe);
 
@@ -51,6 +62,8 @@ pub fn build(b: *std.Build) void {
     unit_tests.addModule("sym", sym);
     unit_tests.addModule("stats", stats);
     unit_tests.addModule("lang", lang);
+    unit_tests.addModule("git", git);
+    unit_tests.linkLibC();
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");

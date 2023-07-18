@@ -2,6 +2,7 @@ const std = @import("std");
 
 const MMap = @import("./mmap.zig").MMap;
 pub const lang = @import("lang");
+const git = @import("git");
 
 pub fn main() !void {
     var args = std.process.args();
@@ -19,6 +20,21 @@ pub fn main() !void {
 
     const content = try MMap.init(filename);
     defer content.deinit();
+
+    var repo = try git.Repo.open();
+    defer repo.deinit();
+
+    const head = try repo.head();
+    defer head.deinit();
+
+    var walk = try repo.walk_head();
+    defer walk.deinit();
+
+    while (walk.next()) |id| {
+        std.debug.print("{}\n", .{id});
+    }
+
+    //std.debug.print("head: {}\n", .{head});
 
     //var lexer = lang.Lexer.init(content.string());
     //while (try lexer.sig()) |token| {
