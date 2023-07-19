@@ -1,4 +1,5 @@
 const git2 = @import("git2.zig");
+const std = @import("std");
 
 pub const GitBuf = struct {
     const Self = @This();
@@ -24,5 +25,12 @@ pub const GitBuf = struct {
 
     pub fn deinit(self: *Self) void {
         git2.git_buf_dispose(&self.buf);
+    }
+
+    pub fn copy(self: *const Self, alloc: std.mem.Allocator) ![]const u8 {
+        var buf = try alloc.alloc(u8, self.buf.size);
+        @memcpy(buf, self.slice());
+
+        return buf;
     }
 };

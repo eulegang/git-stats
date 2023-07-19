@@ -3,10 +3,11 @@
 # get stats on a code base
 cloc = `tokei -o json`
 
-# extract a pattern out of some json content
-jq pattern = `jq ${pattern}`
 
-code = cloc | jq '.Total.code'
-comments = cloc | jq '.Total.comments'
+code = cloc | jq('.Total.code')
+comments = cloc | jq('.Total.comments')
 
 export code, comments
+
+# extract a pattern out of some json content
+jq(pattern) = `jq ${pattern}`

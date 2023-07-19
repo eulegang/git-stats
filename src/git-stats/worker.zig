@@ -87,9 +87,10 @@ pub const Worker = struct {
     const Self = @This();
 
     chan: *WorkChannel,
+    repo: git.Repo,
 
-    pub fn init(chan: *WorkChannel) Self {
-        return Self{ .chan = chan };
+    pub fn init(chan: *WorkChannel, repo: git.Repo) Self {
+        return Self{ .chan = chan, .repo = repo };
     }
 
     pub fn run(self: *Self) !bool {

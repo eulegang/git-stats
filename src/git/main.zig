@@ -14,13 +14,15 @@ pub const Error = error{
 pub const Repo = struct {
     const Self = @This();
 
-    path: GitBuf,
+    path: []const u8,
     repo: *git2.git_repository,
 
     pub fn open() !Self {
         _ = git2.git_libgit2_init();
 
-        const path = try discover();
+        var path = try discover();
+        defer path.deinit();
+
         var repo: ?*git2.git_repository = null;
         var succ = git2.git_repository_open(&repo, path.cstr());
 
@@ -30,13 +32,13 @@ pub const Repo = struct {
         }
 
         return Self{
-            .path = path,
+            .path = try path.copy(std.heap.c_allocator),
             .repo = repo orelse return Error.git_error,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.path.deinit();
+        std.heap.c_allocator.free(self.path);
         git2.git_repository_free(self.repo);
         _ = git2.git_libgit2_shutdown();
     }
@@ -61,6 +63,26 @@ pub const Repo = struct {
         walk.push_head();
 
         return walk;
+    }
+
+    pub fn local_copy(self: *const Self, path: []const u8) !Repo {
+        // should call to keep symetic init/shutdown calls
+        _ = git2.git_libgit2_init();
+
+        var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        var repo: ?*git2.git_repository = null;
+
+        var url = std.fmt.bufPrint(&buf, "file:///{s}\x00", .{self.path}) catch unreachable;
+
+        var opts: git2.git_clone_options = undefined;
+        _ = git2.git_clone_options_init(&opts, git2.GIT_CLONE_OPTIONS_VERSION);
+
+        _ = git2.git_clone(&repo, url.ptr, path.ptr, &opts);
+
+        return Repo{
+            .repo = repo orelse return Error.git_error,
+            .path = path,
+        };
     }
 };
 
