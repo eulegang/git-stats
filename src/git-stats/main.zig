@@ -4,6 +4,8 @@ const MMap = @import("./mmap.zig").MMap;
 pub const lang = @import("lang");
 const git = @import("git");
 
+const worker = @import("./worker.zig");
+
 pub fn main() !void {
     var args = std.process.args();
     const stderr = std.io.getStdErr().writer();
@@ -24,22 +26,42 @@ pub fn main() !void {
     var repo = try git.Repo.open();
     defer repo.deinit();
 
-    const head = try repo.head();
-    defer head.deinit();
-
     var walk = try repo.walk_head();
     defer walk.deinit();
 
-    while (walk.next()) |id| {
-        std.debug.print("{}\n", .{id});
+    const jobs = 4;
+    var workers = [_]worker.Worker{undefined} ** jobs;
+    var threads = [_]std.Thread{undefined} ** jobs;
+    var work_chan = worker.WorkChannel.init();
+
+    var i: usize = 0;
+    while (i < jobs) : (i += 1) {
+        workers[i] = worker.Worker.init(&work_chan);
+        threads[i] = try std.Thread.spawn(.{}, worker.Worker.handler, .{&workers[i]});
     }
 
-    //std.debug.print("head: {}\n", .{head});
+    while (true) {
+        var oids = [_]git.oid{undefined} ** 32;
+        i = 0;
+        var need_to_fuse = false;
 
-    //var lexer = lang.Lexer.init(content.string());
-    //while (try lexer.sig()) |token| {
-    //    std.debug.print("token: {}\n", .{token});
-    //}
+        while (i < 32) : (i += 1) {
+            oids[i] = walk.next() orelse {
+                need_to_fuse = true;
+                break;
+            };
+        }
 
-    //std.debug.print("content {s}\n", .{content.string()});
+        work_chan.fill(oids[0..i]);
+
+        if (need_to_fuse) {
+            work_chan.fuse();
+            break;
+        }
+    }
+
+    i = 0;
+    while (i < jobs) : (i += 1) {
+        threads[i].join();
+    }
 }

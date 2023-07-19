@@ -1,7 +1,9 @@
 const std = @import("std");
 const GitBuf = @import("buf.zig").GitBuf;
-const Ref = @import("ref.zig").Ref;
-const Walk = @import("walk.zig").Walk;
+const ref = @import("ref.zig");
+pub const Ref = ref.Ref;
+pub const oid = ref.oid;
+pub const Walk = @import("walk.zig").Walk;
 
 const git2 = @import("git2.zig");
 
@@ -40,15 +42,15 @@ pub const Repo = struct {
     }
 
     pub fn head(self: *Self) !Ref {
-        var ref: ?*git2.git_reference = null;
-        var succ = git2.git_repository_head(&ref, self.repo);
+        var r: ?*git2.git_reference = null;
+        var succ = git2.git_repository_head(&r, self.repo);
 
         if (succ != 0) {
             std.log.err("failed to find head", .{});
             return Error.git_error;
         }
 
-        const gref = Ref.init(ref orelse unreachable);
+        const gref = Ref.init(r orelse unreachable);
         std.log.debug("head {}", .{gref});
 
         return gref;
