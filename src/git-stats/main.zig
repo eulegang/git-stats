@@ -6,6 +6,8 @@ const git = @import("git");
 
 const worker = @import("./worker.zig");
 
+const Workspace = @import("workspace.zig").Workspace;
+
 var tmp_path = [_]u8{undefined} ** std.fs.MAX_PATH_BYTES;
 
 const Args = struct {
@@ -15,18 +17,6 @@ const Args = struct {
 };
 
 pub fn main() !void {
-    //var args = std.process.args();
-    //const stderr = std.io.getStdErr().writer();
-
-    //_ = args.next();
-    //var filename: [:0]const u8 = undefined;
-
-    //if (args.next()) |arg| {
-    //    filename = arg;
-    //} else {
-    //    try stderr.print("need a path to work with\n", .{});
-    //    std.process.exit(1);
-    //}
     var args = Args{
         .filename = "example",
         .jobs = 4,
@@ -38,8 +28,8 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    const content = try MMap.init(args.filename);
-    defer content.deinit();
+    //const content = try MMap.init(args.filename);
+    //defer content.deinit();
 
     var repo = try git.Repo.open();
     defer repo.deinit();
@@ -52,29 +42,18 @@ pub fn main() !void {
     var threads = [_]std.Thread{undefined} ** 32;
     var work_chan = worker.WorkChannel.init();
 
-    const pid = std.os.linux.getpid();
+    var workspace = try Workspace.init(std.heap.c_allocator, !args.postmordem);
+    defer workspace.deinit();
 
-    const path = try std.fmt.bufPrint(&tmp_path, "/tmp/git-stats-{}/", .{pid});
-
-    try std.fs.makeDirAbsolute(path);
-    var dir = try std.fs.openDirAbsolute(path, .{});
-    defer dir.close();
-
-    try dir.makeDir("repos");
-
-    defer if (!args.postmordem)
-        std.fs.deleteTreeAbsolute(path) catch {};
-
+    try workspace.chdir("repos");
     var i: usize = 0;
-    var name_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     while (i < jobs) : (i += 1) {
-        var p = try std.fmt.bufPrint(&name_buf, "/tmp/git-stats-{}/repos/{}", .{ pid, i });
-
-        const r = try repo.local_copy(p);
+        const r = try workspace.copy_repo(repo, i);
 
         workers[i] = worker.Worker.init(&work_chan, r);
         threads[i] = try std.Thread.spawn(.{}, worker.Worker.handler, .{&workers[i]});
     }
+    try workspace.reset_dir();
 
     while (true) {
         var oids = [_]git.oid{undefined} ** 32;

@@ -72,12 +72,23 @@ pub const Repo = struct {
         var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
         var repo: ?*git2.git_repository = null;
 
-        var url = std.fmt.bufPrint(&buf, "file:///{s}\x00", .{self.path}) catch unreachable;
+        var url = std.fmt.bufPrint(&buf, "file://{s}\x00", .{self.path}) catch unreachable;
 
         var opts: git2.git_clone_options = undefined;
-        _ = git2.git_clone_options_init(&opts, git2.GIT_CLONE_OPTIONS_VERSION);
+        var succ: i32 = 0;
+        succ = git2.git_clone_options_init(&opts, git2.GIT_CLONE_OPTIONS_VERSION);
+        if (succ != 0) {
+            std.log.err("initing clone options git error {}", .{succ});
+            return Error.git_error;
+        }
+        opts.local = git2.GIT_CLONE_LOCAL;
 
-        _ = git2.git_clone(&repo, url.ptr, path.ptr, &opts);
+        succ = git2.git_clone(&repo, url.ptr, path.ptr, &opts);
+        if (succ != 0) {
+            var err = git2.git_error_last();
+            std.log.err("cloning repo git error {} - {s}", .{ succ, err.*.message });
+            return Error.git_error;
+        }
 
         return Repo{
             .repo = repo orelse return Error.git_error,
