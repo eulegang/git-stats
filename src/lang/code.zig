@@ -52,10 +52,10 @@ pub const Inst = union(Op) {
         var op = @intToEnum(Op, buf[0]);
 
         switch (op) {
-            .clear => return Inst{ .clear = try OpClear.from(buf[1..]) },
-            .append => return Inst{ .append = try OpAppend.from(buf[1..]) },
-            .reg => return Inst{ .reg = try OpReg.from(buf[1..]) },
-            .exit => return Inst{ .exit = try OpExit.from(buf[1..]) },
+            .clear => return Inst{ .clear = try parse_op(OpClear, buf[1..]) },
+            .append => return Inst{ .append = try parse_op(OpAppend, buf[1..]) },
+            .reg => return Inst{ .reg = try parse_op(OpReg, buf[1..]) },
+            .exit => return Inst{ .exit = try parse_op(OpExit, buf[1..]) },
         }
     }
 
@@ -72,14 +72,23 @@ pub const Inst = union(Op) {
         buf[0] = @enumToInt(self);
 
         switch (self) {
-            .clear => return 1 + @sizeOf(OpClear),
-            .exit => return 1 + @sizeOf(OpExit),
-            .append => |a| {
-                a.imprint(buf[1..]);
+            .clear => |op| {
+                imprint_op(op, buf[1..]);
+                return 1 + @sizeOf(OpClear);
+            },
+
+            .exit => |op| {
+                imprint_op(op, buf[1..]);
+                return 1 + @sizeOf(OpExit);
+            },
+
+            .append => |op| {
+                imprint_op(op, buf[1..]);
                 return 1 + @sizeOf(OpAppend);
             },
-            .reg => |r| {
-                r.imprint(buf[1..]);
+
+            .reg => |op| {
+                imprint_op(op, buf[1..]);
                 return 1 + @sizeOf(OpReg);
             },
         }
@@ -87,69 +96,84 @@ pub const Inst = union(Op) {
 };
 
 /// Clears the scratch space
-const OpClear = struct {
-    fn from(_: []const u8) !OpClear {
-        return OpClear{};
-    }
-};
+const OpClear = packed struct {};
 
 /// Append a constant to the scratch space
-const OpAppend = struct {
+const OpAppend = packed struct {
     constant: u16,
-
-    fn from(buf: []const u8) !OpAppend {
-        if (buf.len < @sizeOf(@This()))
-            return Inst.Error.InvalidInst;
-
-        var constant = convertU16([2]u8{ buf[0], buf[1] });
-
-        return OpAppend{
-            .constant = constant,
-        };
-    }
-
-    fn imprint(self: OpAppend, buf: []u8) void {
-        pushU16(self.constant, buf);
-    }
 };
 
 /// Put scratch space into a register
-const OpReg = struct {
+const OpReg = packed struct {
     reg: u8,
-
-    fn from(buf: []const u8) !OpReg {
-        if (buf.len < @sizeOf(@This()))
-            return Inst.Error.InvalidInst;
-
-        return OpReg{
-            .reg = buf[0],
-        };
-    }
-
-    fn imprint(self: OpReg, buf: []u8) void {
-        buf[0] = self.reg;
-    }
 };
 
-const OpExit = struct {
-    fn from(_: []const u8) !OpExit {
-        return OpExit{};
+const OpExit = packed struct {};
+
+fn imprint_op(op: anytype, buf: []u8) void {
+    comptime var ty = @typeInfo(@TypeOf(op));
+    comptime var i = 0;
+
+    inline for (ty.Struct.fields) |field| {
+        comptime var field_ty = @typeInfo(field.type);
+
+        switch (field_ty.Int.bits) {
+            8 => {
+                buf[i] = @field(op, field.name);
+                i += 1;
+            },
+
+            16 => {
+                var k = @field(op, field.name);
+                if (native_endian == .Big)
+                    @byteSwap(k);
+
+                var tmp = @bitCast([2]u8, k);
+
+                buf[i] = tmp[0];
+                i += 1;
+                buf[i] = tmp[1];
+                i += 1;
+            },
+
+            else => @compileError("unhandled bit field"),
+        }
     }
-};
-
-fn convertU16(arr: [2]u8) u16 {
-    var constant = @bitCast(u16, arr);
-    if (native_endian == .Big)
-        @byteSwap(constant);
-
-    return constant;
 }
 
-fn pushU16(num: u16, buf: []u8) void {
-    if (native_endian == .Big)
-        @byteSwap(num);
-    var arr = @bitCast([2]u8, num);
+fn parse_op(comptime T: type, buf: []const u8) !T {
+    if (buf.len < @sizeOf(T)) {
+        return Inst.Error.InvalidInst;
+    }
 
-    buf[0] = arr[0];
-    buf[1] = arr[1];
+    comptime var ty = @typeInfo(T);
+    comptime var i = 0;
+
+    var res: [@sizeOf(T)]u8 = undefined;
+
+    inline for (ty.Struct.fields) |field| {
+        comptime var field_ty = @typeInfo(field.type);
+
+        switch (field_ty.Int.bits) {
+            8 => {
+                res[i] = buf[i];
+                i += 1;
+            },
+
+            16 => {
+                if (native_endian == .Big) {
+                    res[i] = buf[i + 1];
+                    res[i + 1] = buf[i];
+                } else {
+                    res[i] = buf[i];
+                    res[i + 1] = buf[i + 1];
+                }
+                i += 2;
+            },
+
+            else => @compileError("unhandled bit field"),
+        }
+    }
+
+    return @bitCast(T, res);
 }
