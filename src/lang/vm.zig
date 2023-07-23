@@ -70,6 +70,9 @@ pub const Vm = struct {
         var regm = try alloc.create([65536]u8);
         var scratch = try alloc.create(Scratch);
 
+        scratch.len = 0;
+        scratch.next = null;
+
         return Vm{
             .ip = 0,
             .regs = [_]Reg{Reg{ .len = 0, .present = false, .persisted = false }} ** 16,
@@ -84,10 +87,19 @@ pub const Vm = struct {
         self.alloc.destroy(self.scratch);
     }
 
+    pub fn fetch(self: *Vm, id: u8) ?[]const u8 {
+        if (!self.regs[id].present)
+            return null;
+
+        const start = 4096 * @as(u16, id);
+        const end = 4096 * @as(u16, id) + self.regs[id].len;
+        return self.regm[start..end];
+    }
+
     pub fn run(self: *Vm, prog: *const Prog) !void {
         var inst: code.Inst = undefined;
         while (self.ip < prog.code.len) {
-            inst = code.Inst.from(prog.code[self.ip..]);
+            inst = try code.Inst.from(prog.code[self.ip..]);
 
             switch (inst) {
                 .clear => {
@@ -97,8 +109,24 @@ pub const Vm = struct {
 
                     self.scratch.len = 0;
                 },
-                .append => {},
-                .reg => {},
+                .append => |op| {
+                    var content = prog.tab.entry(op.constant);
+                    try self.scratch.push(content, self.alloc);
+                },
+                .reg => |op| {
+                    if (self.scratch.next) |_| {
+                        // do something if scratch has a next
+                        // it will not fit into a reg
+                        unreachable;
+                    } else {
+                        const start = 4096 * @as(u16, op.reg);
+                        const end = start + self.scratch.len;
+                        @memcpy(self.regm[start..end], self.scratch.buf[0..self.scratch.len]);
+
+                        self.regs[op.reg].len = @truncate(u12, self.scratch.len);
+                        self.regs[op.reg].present = true;
+                    }
+                },
                 .exit => return,
             }
 
@@ -120,5 +148,15 @@ pub const Scratch = struct {
         }
 
         alloc.destroy(self);
+    }
+
+    fn push(self: *Scratch, content: []const u8, alloc: std.mem.Allocator) !void {
+        if (self.len + content.len < 4096) {
+            @memcpy(self.buf[self.len .. self.len + content.len], content);
+            self.len += content.len;
+        } else {
+            _ = alloc;
+            unreachable;
+        }
     }
 };
