@@ -44,7 +44,7 @@ pub const Parser = struct {
         };
     }
 
-    pub fn parse(self: *Self) Error!*Prog {
+    pub fn parse(self: *Self) Error!*Ast {
         var binds = std.ArrayList(Bind).init(self.alloc);
         errdefer {
             for (binds.items) |b| {
@@ -202,8 +202,8 @@ pub const Parser = struct {
             }
         }
 
-        var prog = try self.alloc.create(Prog);
-        prog.* = Prog{
+        var prog = try self.alloc.create(Ast);
+        prog.* = Ast{
             .binds = binds,
             .funcs = funcs,
             .exports = exports,
@@ -218,7 +218,7 @@ pub const Parser = struct {
 
     pub fn free(self: *Self, arg: anytype) void {
         switch (@TypeOf(arg)) {
-            Prog => {
+            Ast => {
                 for (arg.binds.items) |b| {
                     self.free(b);
                 }
@@ -235,7 +235,7 @@ pub const Parser = struct {
                 arg.funcs.deinit();
             },
 
-            *Prog => {
+            *Ast => {
                 self.free(arg.*);
                 self.alloc.destroy(arg);
             },
@@ -533,13 +533,13 @@ pub const Parser = struct {
     }
 };
 
-pub const Prog = struct {
+pub const Ast = struct {
     binds: std.ArrayList(Bind),
     funcs: std.ArrayList(Func),
     exports: std.ArrayList(Export),
 
     pub fn format(
-        self: *const Prog,
+        self: *const Ast,
         comptime _: []const u8,
         _: std.fmt.FormatOptions,
         writer: anytype,
