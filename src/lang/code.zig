@@ -4,13 +4,24 @@ const native_endian = @import("builtin").target.cpu.arch.endian();
 pub const Op = enum {
     pub const Clear = OpClear;
     pub const Append = OpAppend;
-    pub const Reg = OpReg;
     pub const Exit = OpExit;
+
+    pub const SetExport = OpSetExport;
+    pub const GetExport = OpGetExport;
+
+    pub const SetGlobal = OpSetGlobal;
+    pub const GetGlobal = OpGetGlobal;
+
+    pub const Push = OpPush;
 
     clear,
     append,
-    reg,
     exit,
+    set_export,
+    get_export,
+    set_global,
+    get_global,
+    push,
 
     fn top() u8 {
         comptime var res = 0;
@@ -38,8 +49,12 @@ pub const Inst = union(Op) {
 
     clear: Op.Clear,
     append: Op.Append,
-    reg: Op.Reg,
     exit: Op.Exit,
+    set_export: Op.SetExport,
+    get_export: Op.GetExport,
+    set_global: Op.SetGlobal,
+    get_global: Op.GetGlobal,
+    push: Op.Push,
 
     pub fn from(buf: []const u8) !Inst {
         if (buf.len < 1)
@@ -54,8 +69,12 @@ pub const Inst = union(Op) {
         switch (op) {
             .clear => return Inst{ .clear = try parse_op(OpClear, buf[1..]) },
             .append => return Inst{ .append = try parse_op(OpAppend, buf[1..]) },
-            .reg => return Inst{ .reg = try parse_op(OpReg, buf[1..]) },
             .exit => return Inst{ .exit = try parse_op(OpExit, buf[1..]) },
+            .set_export => return Inst{ .set_export = try parse_op(OpSetExport, buf[1..]) },
+            .get_export => return Inst{ .get_export = try parse_op(OpGetExport, buf[1..]) },
+            .set_global => return Inst{ .set_global = try parse_op(OpSetGlobal, buf[1..]) },
+            .get_global => return Inst{ .get_global = try parse_op(OpGetGlobal, buf[1..]) },
+            .push => return Inst{ .push = try parse_op(OpPush, buf[1..]) },
         }
     }
 
@@ -63,8 +82,12 @@ pub const Inst = union(Op) {
         switch (self) {
             .clear => return 1 + @sizeOf(OpClear),
             .append => return 1 + @sizeOf(OpAppend),
-            .reg => return 1 + @sizeOf(OpReg),
             .exit => return 1 + @sizeOf(OpExit),
+            .set_export => return 1 + @sizeOf(OpSetExport),
+            .get_export => return 1 + @sizeOf(OpGetExport),
+            .set_global => return 1 + @sizeOf(OpSetExport),
+            .get_global => return 1 + @sizeOf(OpGetExport),
+            .push => return 1 + @sizeOf(OpPush),
         }
     }
 
@@ -87,9 +110,29 @@ pub const Inst = union(Op) {
                 return 1 + @sizeOf(OpAppend);
             },
 
-            .reg => |op| {
+            .set_export => |op| {
                 imprint_op(op, buf[1..]);
-                return 1 + @sizeOf(OpReg);
+                return 1 + @sizeOf(OpSetExport);
+            },
+
+            .get_export => |op| {
+                imprint_op(op, buf[1..]);
+                return 1 + @sizeOf(OpGetExport);
+            },
+
+            .set_global => |op| {
+                imprint_op(op, buf[1..]);
+                return 1 + @sizeOf(OpSetGlobal);
+            },
+
+            .get_global => |op| {
+                imprint_op(op, buf[1..]);
+                return 1 + @sizeOf(OpGetGlobal);
+            },
+
+            .push => |op| {
+                imprint_op(op, buf[1..]);
+                return 1 + @sizeOf(OpPush);
             },
         }
     }
@@ -103,12 +146,43 @@ const OpAppend = packed struct {
     constant: u16,
 };
 
-/// Put scratch space into a register
-const OpReg = packed struct {
-    reg: u8,
+const OpExit = packed struct {};
+
+const OpSetExport = packed struct {
+    id: u8,
 };
 
-const OpExit = packed struct {};
+const OpGetExport = packed struct {
+    id: u8,
+};
+
+const OpSetGlobal = packed struct {
+    id: u16,
+};
+
+const OpGetGlobal = packed struct {
+    id: u16,
+};
+
+const OpPush = packed struct {
+    id: u16,
+
+    pub fn is_export(self: OpPush) bool {
+        return 0xc000 & self.id == 0x4000;
+    }
+
+    pub fn is_global(self: OpPush) bool {
+        return 0xc000 & self.id == 0x8000;
+    }
+
+    pub fn is_scratch(self: OpPush) bool {
+        return 0xc000 & self.id == 0xc000;
+    }
+
+    pub fn addr(self: OpPush) u16 {
+        return 0x3FFF & self.id;
+    }
+};
 
 fn imprint_op(op: anytype, buf: []u8) void {
     comptime var ty = @typeInfo(@TypeOf(op));

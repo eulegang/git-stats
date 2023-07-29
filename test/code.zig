@@ -39,10 +39,10 @@ test "test append op" {
     try std.testing.expectEqual((try inst).size(), buf.len);
 }
 
-test "test reg op" {
-    var buf = [_]u8{ 2, 5 };
+test "test set_export op" {
+    var buf = [_]u8{ 3, 5 };
 
     var inst = Inst.from(&buf);
-    try std.testing.expectEqual(inst, Inst{ .reg = Op.Reg{ .reg = 5 } });
+    try std.testing.expectEqual(inst, Inst{ .set_export = Op.SetExport{ .id = 5 } });
     try std.testing.expectEqual((try inst).size(), buf.len);
 }

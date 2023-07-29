@@ -6,6 +6,8 @@ pub const Prog = struct {
 
     code: []const u8,
     tab: Strtab,
+    export_count: usize,
+    global_count: usize,
 
     pub fn disassemble(self: *Self, writer: anytype) !void {
         var addr: usize = 0;
@@ -17,9 +19,6 @@ pub const Prog = struct {
                 .clear => {
                     try writer.print("{X:0>4} clear\n", .{addr});
                 },
-                .reg => |reg| {
-                    try writer.print("{X:0>4} reg {}\n", .{ addr, reg.reg });
-                },
 
                 .append => |append| {
                     const content = self.tab.entry(append.constant);
@@ -29,6 +28,31 @@ pub const Prog = struct {
 
                 .exit => {
                     try writer.print("{X:0>4} exit\n", .{addr});
+                },
+
+                .set_export => |op| {
+                    try writer.print("{X:0>4} set_export {}\n", .{ addr, op.id });
+                },
+                .get_export => |op| {
+                    try writer.print("{X:0>4} get_export {}\n", .{ addr, op.id });
+                },
+
+                .set_global => |op| {
+                    try writer.print("{X:0>4} set_export {}\n", .{ addr, op.id });
+                },
+
+                .get_global => |op| {
+                    try writer.print("{X:0>4} get_export {}\n", .{ addr, op.id });
+                },
+
+                .push => |op| {
+                    if (op.is_export()) {
+                        try writer.print("{X:0>4} push_export {}\n", .{ addr, op.addr() });
+                    } else if (op.is_global()) {
+                        try writer.print("{X:0>4} push_global {}\n", .{ addr, op.addr() });
+                    } else if (op.is_scratch()) {
+                        try writer.print("{X:0>4} push_scratch\n", .{addr});
+                    } else unreachable;
                 },
             }
 
@@ -59,44 +83,61 @@ pub const Reg = packed struct {
 };
 
 pub const Vm = struct {
-    pub const Error = error{EndOfInst};
+    pub const Error = error{
+        EndOfInst,
+        StackLimit,
+        StackUnderflow,
+    };
+
+    const STACK_LIMIT = 1028;
+
     ip: usize,
-    regs: [16]Reg,
-    regm: *[65536]u8,
     scratch: *Scratch,
     alloc: std.mem.Allocator,
 
+    sp: usize,
+    stack: [STACK_LIMIT]Atom,
+    exports: []Atom,
+
     pub fn init(alloc: std.mem.Allocator) !Vm {
-        var regm = try alloc.create([65536]u8);
         var scratch = try alloc.create(Scratch);
 
         scratch.len = 0;
         scratch.next = null;
+        const exports = try alloc.alloc(Atom, 0);
 
         return Vm{
             .ip = 0,
-            .regs = [_]Reg{Reg{ .len = 0, .present = false, .persisted = false }} ** 16,
-            .regm = regm,
             .scratch = scratch,
             .alloc = alloc,
+            .sp = 0,
+            .stack = [_]Atom{undefined} ** 1028,
+            .exports = exports,
         };
     }
 
     pub fn deinit(self: *Vm) void {
-        self.alloc.destroy(self.regm);
         self.alloc.destroy(self.scratch);
+
+        for (self.exports) |i| {
+            self.alloc.free(i.buf);
+        }
+
+        self.alloc.free(self.exports);
     }
 
     pub fn fetch(self: *Vm, id: u8) ?[]const u8 {
-        if (!self.regs[id].present)
+        if (id >= self.exports.len) {
             return null;
+        }
 
-        const start = 4096 * @as(u16, id);
-        const end = 4096 * @as(u16, id) + self.regs[id].len;
-        return self.regm[start..end];
+        return self.exports[id].buf;
     }
 
     pub fn run(self: *Vm, prog: *const Prog) !void {
+        self.alloc.free(self.exports);
+        self.exports = try self.alloc.alloc(Atom, prog.export_count);
+
         var inst: code.Inst = undefined;
         while (self.ip < prog.code.len) {
             inst = try code.Inst.from(prog.code[self.ip..]);
@@ -113,21 +154,35 @@ pub const Vm = struct {
                     var content = prog.tab.entry(op.constant);
                     try self.scratch.push(content, self.alloc);
                 },
-                .reg => |op| {
-                    if (self.scratch.next) |_| {
-                        // do something if scratch has a next
-                        // it will not fit into a reg
-                        unreachable;
-                    } else {
-                        const start = 4096 * @as(u16, op.reg);
-                        const end = start + self.scratch.len;
-                        @memcpy(self.regm[start..end], self.scratch.buf[0..self.scratch.len]);
-
-                        self.regs[op.reg].len = @truncate(u12, self.scratch.len);
-                        self.regs[op.reg].present = true;
+                .set_export => |op| {
+                    if (self.sp == 0) {
+                        return Error.StackUnderflow;
                     }
+
+                    self.sp -= 1;
+                    self.exports[op.id] = self.stack[self.sp];
+                },
+                .get_export => {},
+                .set_global => {},
+                .get_global => {},
+                .push => |op| {
+                    if (self.sp >= STACK_LIMIT) {
+                        return Error.StackLimit;
+                    }
+
+                    if (op.is_export()) {} else if (op.is_scratch()) {
+                        const len = self.scratch.total();
+                        const buf = try self.alloc.alloc(u8, len);
+                        self.scratch.copy_to(buf);
+
+                        const atom = Atom{ .alloc = self.alloc, .buf = buf };
+                        self.stack[self.sp] = atom;
+                        self.sp += 1;
+                    } else unreachable;
                 },
                 .exit => return,
+
+                //else => unreachable,
             }
 
             self.ip += inst.size();
@@ -159,4 +214,43 @@ pub const Scratch = struct {
             unreachable;
         }
     }
+
+    fn total(self: *Scratch) usize {
+        var len: usize = 0;
+        var cur: ?*Scratch = self;
+        while (cur) |c| {
+            len += c.len;
+            cur = c.next;
+        }
+
+        return len;
+    }
+
+    fn copy_to(self: *Scratch, buf: []u8) void {
+        var i: usize = 0;
+        var s: ?*Scratch = self;
+        while (s) |cur| {
+            @memcpy(buf[i..cur.len], cur.buf[0..cur.len]);
+
+            i += cur.len;
+            s = cur.next;
+        }
+    }
 };
+
+pub const Atom = struct {
+    alloc: std.mem.Allocator,
+    buf: []u8,
+};
+
+//pub const Atom = union(enum) {
+//    bare: BareAtom,
+//    stored: StoreAtom,
+//};
+//
+//const BareAtom = struct {
+//    alloc: std.mem.Allocator,
+//    buf: []u8,
+//};
+//
+//const StoreAtom = struct {};

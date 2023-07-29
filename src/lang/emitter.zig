@@ -11,12 +11,16 @@ pub const Emitter = struct {
     code: std.ArrayList(u8),
     tab: std.ArrayList(u8),
     entries: std.ArrayList(Entry),
+    global_count: usize,
+    exports: std.ArrayList([]const u8),
 
     pub fn init(alloc: std.mem.Allocator) !Emitter {
         return Emitter{
             .code = std.ArrayList(u8).init(alloc),
             .tab = std.ArrayList(u8).init(alloc),
             .entries = std.ArrayList(Entry).init(alloc),
+            .global_count = 0,
+            .exports = std.ArrayList([]const u8).init(alloc),
         };
     }
 
@@ -24,6 +28,7 @@ pub const Emitter = struct {
         self.code.deinit();
         self.tab.deinit();
         self.entries.deinit();
+        self.exports.deinit();
     }
 
     pub fn emit(self: *Emitter) Prog {
@@ -33,6 +38,8 @@ pub const Emitter = struct {
                 .content = self.tab.items,
                 .entries = self.entries.items,
             },
+            .export_count = self.exports.items.len,
+            .global_count = self.global_count,
         };
     }
 
@@ -58,6 +65,27 @@ pub const Emitter = struct {
 
     pub fn reg(self: *Emitter, r: u8) !void {
         const inst = Inst{ .reg = Op.Reg{ .reg = r } };
+        try self.push(inst);
+    }
+
+    pub fn add_export(self: *Emitter, name: []const u8) !u8 {
+        const id = self.exports.items.len;
+        try self.exports.append(name);
+        return @truncate(u8, id);
+    }
+
+    pub fn set_export(self: *Emitter, id: u8) !void {
+        const inst = Inst{ .set_export = Op.SetExport{ .id = id } };
+        try self.push(inst);
+    }
+
+    pub fn get_export(self: *Emitter, id: u8) !void {
+        const inst = Inst{ .get_export = Op.GetExport{ .id = id } };
+        try self.push(inst);
+    }
+
+    pub fn push_scratch(self: *Emitter) !void {
+        const inst = Inst{ .push = Op.Push{ .id = 0xC000 } };
         try self.push(inst);
     }
 
