@@ -85,7 +85,7 @@ pub const Emitter = struct {
     }
 
     pub fn push_scratch(self: *Emitter) !void {
-        const inst = Inst{ .push = Op.Push{ .id = 0xC000 } };
+        const inst = Inst{ .get_scratch = Op.GetScratch{} };
         try self.push(inst);
     }
 

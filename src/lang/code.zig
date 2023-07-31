@@ -12,7 +12,7 @@ pub const Op = enum {
     pub const SetGlobal = OpSetGlobal;
     pub const GetGlobal = OpGetGlobal;
 
-    pub const Push = OpPush;
+    pub const GetScratch = OpGetScratch;
 
     clear,
     append,
@@ -21,7 +21,7 @@ pub const Op = enum {
     get_export,
     set_global,
     get_global,
-    push,
+    get_scratch,
 
     fn top() u8 {
         comptime var res = 0;
@@ -54,7 +54,7 @@ pub const Inst = union(Op) {
     get_export: Op.GetExport,
     set_global: Op.SetGlobal,
     get_global: Op.GetGlobal,
-    push: Op.Push,
+    get_scratch: Op.GetScratch,
 
     pub fn from(buf: []const u8) !Inst {
         if (buf.len < 1)
@@ -74,7 +74,7 @@ pub const Inst = union(Op) {
             .get_export => return Inst{ .get_export = try parse_op(OpGetExport, buf[1..]) },
             .set_global => return Inst{ .set_global = try parse_op(OpSetGlobal, buf[1..]) },
             .get_global => return Inst{ .get_global = try parse_op(OpGetGlobal, buf[1..]) },
-            .push => return Inst{ .push = try parse_op(OpPush, buf[1..]) },
+            .get_scratch => return Inst{ .get_scratch = try parse_op(OpGetScratch, buf[1..]) },
         }
     }
 
@@ -87,7 +87,7 @@ pub const Inst = union(Op) {
             .get_export => return 1 + @sizeOf(OpGetExport),
             .set_global => return 1 + @sizeOf(OpSetExport),
             .get_global => return 1 + @sizeOf(OpGetExport),
-            .push => return 1 + @sizeOf(OpPush),
+            .get_scratch => return 1 + @sizeOf(OpGetScratch),
         }
     }
 
@@ -130,9 +130,9 @@ pub const Inst = union(Op) {
                 return 1 + @sizeOf(OpGetGlobal);
             },
 
-            .push => |op| {
+            .get_scratch => |op| {
                 imprint_op(op, buf[1..]);
-                return 1 + @sizeOf(OpPush);
+                return 1 + @sizeOf(OpGetScratch);
             },
         }
     }
@@ -163,6 +163,8 @@ const OpSetGlobal = packed struct {
 const OpGetGlobal = packed struct {
     id: u16,
 };
+
+const OpGetScratch = packed struct {};
 
 const OpPush = packed struct {
     id: u16,

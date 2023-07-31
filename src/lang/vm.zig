@@ -45,14 +45,8 @@ pub const Prog = struct {
                     try writer.print("{X:0>4} get_export {}\n", .{ addr, op.id });
                 },
 
-                .push => |op| {
-                    if (op.is_export()) {
-                        try writer.print("{X:0>4} push_export {}\n", .{ addr, op.addr() });
-                    } else if (op.is_global()) {
-                        try writer.print("{X:0>4} push_global {}\n", .{ addr, op.addr() });
-                    } else if (op.is_scratch()) {
-                        try writer.print("{X:0>4} push_scratch\n", .{addr});
-                    } else unreachable;
+                .get_scratch => {
+                    try writer.print("{X:0>4} get_scratch\n", .{addr});
                 },
             }
 
@@ -98,6 +92,7 @@ pub const Vm = struct {
     sp: usize,
     stack: [STACK_LIMIT]Atom,
     exports: []Atom,
+    globals: []Atom,
 
     pub fn init(alloc: std.mem.Allocator) !Vm {
         var scratch = try alloc.create(Scratch);
@@ -105,6 +100,7 @@ pub const Vm = struct {
         scratch.len = 0;
         scratch.next = null;
         const exports = try alloc.alloc(Atom, 0);
+        const globals = try alloc.alloc(Atom, 0);
 
         return Vm{
             .ip = 0,
@@ -113,6 +109,7 @@ pub const Vm = struct {
             .sp = 0,
             .stack = [_]Atom{undefined} ** 1028,
             .exports = exports,
+            .globals = globals,
         };
     }
 
@@ -124,6 +121,12 @@ pub const Vm = struct {
         }
 
         self.alloc.free(self.exports);
+
+        for (self.globals) |i| {
+            self.alloc.free(i.buf);
+        }
+
+        self.alloc.free(self.globals);
     }
 
     pub fn fetch(self: *Vm, id: u8) ?[]const u8 {
@@ -135,7 +138,9 @@ pub const Vm = struct {
     }
 
     pub fn run(self: *Vm, prog: *const Prog) !void {
+        // not so great need to figure this out better
         self.alloc.free(self.exports);
+        self.alloc.free(self.globals);
         self.exports = try self.alloc.alloc(Atom, prog.export_count);
 
         var inst: code.Inst = undefined;
@@ -162,24 +167,42 @@ pub const Vm = struct {
                     self.sp -= 1;
                     self.exports[op.id] = self.stack[self.sp];
                 },
-                .get_export => {},
-                .set_global => {},
-                .get_global => {},
-                .push => |op| {
+                .get_export => |op| {
                     if (self.sp >= STACK_LIMIT) {
                         return Error.StackLimit;
                     }
 
-                    if (op.is_export()) {} else if (op.is_scratch()) {
-                        const len = self.scratch.total();
-                        const buf = try self.alloc.alloc(u8, len);
-                        self.scratch.copy_to(buf);
-
-                        const atom = Atom{ .alloc = self.alloc, .buf = buf };
-                        self.stack[self.sp] = atom;
-                        self.sp += 1;
-                    } else unreachable;
+                    self.stack[self.sp] = self.exports[op.id];
+                    self.sp += 1;
                 },
+
+                .set_global => |op| {
+                    if (self.sp == 0) {
+                        return Error.StackUnderflow;
+                    }
+
+                    self.sp -= 1;
+                    self.globals[op.id] = self.stack[self.sp];
+                },
+
+                .get_global => |op| {
+                    if (self.sp >= STACK_LIMIT) {
+                        return Error.StackLimit;
+                    }
+
+                    self.stack[self.sp] = self.globals[op.id];
+                    self.sp += 1;
+                },
+                .get_scratch => {
+                    const len = self.scratch.total();
+                    const buf = try self.alloc.alloc(u8, len);
+                    self.scratch.copy_to(buf);
+
+                    const atom = Atom{ .stowed = false, .alloc = self.alloc, .buf = buf };
+                    self.stack[self.sp] = atom;
+                    self.sp += 1;
+                },
+
                 .exit => return,
 
                 //else => unreachable,
@@ -239,6 +262,7 @@ pub const Scratch = struct {
 };
 
 pub const Atom = struct {
+    stowed: bool,
     alloc: std.mem.Allocator,
     buf: []u8,
 };
