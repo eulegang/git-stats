@@ -48,11 +48,11 @@ pub const Emitter = struct {
         try self.push(inst);
     }
 
-    pub fn append(self: *Emitter, str: []const u8) !void {
+    pub fn append_const(self: *Emitter, str: []const u8) !void {
         const entry = self.entries.items.len;
         const start = self.tab.items.len;
 
-        const inst = Inst{ .append = Op.Append{ .constant = @truncate(u16, entry) } };
+        const inst = Inst{ .append = Op.Append{ .src = .constant, ._pad = 0, .constant = @truncate(u16, entry) } };
 
         try self.tab.appendSlice(str);
         try self.entries.append(Entry{
@@ -61,6 +61,22 @@ pub const Emitter = struct {
         });
 
         try self.push(inst);
+    }
+
+    pub fn append_export(self: *Emitter, id: u16) !void {
+        try self.push(Inst{ .append = Op.Append{
+            .src = .exports,
+            ._pad = 0,
+            .constant = id,
+        } });
+    }
+
+    pub fn append_global(self: *Emitter, id: u16) !void {
+        try self.push(Inst{ .append = Op.Append{
+            .src = .globals,
+            ._pad = 0,
+            .constant = id,
+        } });
     }
 
     pub fn reg(self: *Emitter, r: u8) !void {

@@ -156,8 +156,24 @@ pub const Vm = struct {
                     self.scratch.len = 0;
                 },
                 .append => |op| {
-                    var content = prog.tab.entry(op.constant);
-                    try self.scratch.push(content, self.alloc);
+                    switch (op.src) {
+                        .constant => {
+                            var content = prog.tab.entry(op.constant);
+                            try self.scratch.push(content, self.alloc);
+                        },
+
+                        .globals => {
+                            var content = self.globals[op.constant].buf;
+                            try self.scratch.push(content, self.alloc);
+                        },
+
+                        .exports => {
+                            var content = self.exports[op.constant].buf;
+                            try self.scratch.push(content, self.alloc);
+                        },
+
+                        .scratch => unreachable,
+                    }
                 },
                 .set_export => |op| {
                     if (self.sp == 0) {

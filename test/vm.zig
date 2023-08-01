@@ -9,13 +9,13 @@ test "simple execution example" {
     const german_id = try emitter.add_export("german");
 
     try emitter.clear();
-    try emitter.append("hello");
-    try emitter.append(", ");
-    try emitter.append("world");
+    try emitter.append_const("hello");
+    try emitter.append_const(", ");
+    try emitter.append_const("world");
     try emitter.push_scratch();
     try emitter.set_export(english_id);
     try emitter.clear();
-    try emitter.append("hallo, welt");
+    try emitter.append_const("hallo, welt");
     try emitter.push_scratch();
     try emitter.set_export(german_id);
     try emitter.exit();

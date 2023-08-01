@@ -33,9 +33,13 @@ test "test clear op" {
 }
 
 test "test append op" {
-    var buf = [_]u8{ 1, 1, 0 };
+    var buf = [_]u8{ 1, 0, 0, 1, 0 };
     var inst = Inst.from(&buf);
-    try std.testing.expectEqual(inst, Inst{ .append = Op.Append{ .constant = 1 } });
+    try std.testing.expectEqual(inst, Inst{ .append = Op.Append{
+        .src = .constant,
+        ._pad = 0,
+        .constant = 1,
+    } });
     try std.testing.expectEqual((try inst).size(), buf.len);
 }
 

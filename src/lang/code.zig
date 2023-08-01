@@ -43,6 +43,13 @@ pub const Op = enum {
     }
 };
 
+const SContext = enum(u8) {
+    constant = 0,
+    globals = 1,
+    exports = 2,
+    scratch = 3,
+};
+
 pub const Inst = union(Op) {
     pub const Error = error{InvalidInst};
     const Self = @This();
@@ -143,6 +150,8 @@ const OpClear = packed struct {};
 
 /// Append a constant to the scratch space
 const OpAppend = packed struct {
+    src: SContext,
+    _pad: u8,
     constant: u16,
 };
 
@@ -192,14 +201,33 @@ fn imprint_op(op: anytype, buf: []u8) void {
 
     inline for (ty.Struct.fields) |field| {
         comptime var field_ty = @typeInfo(field.type);
+        comptime var bytes: comptime_int = 0;
 
-        switch (field_ty.Int.bits) {
-            8 => {
-                buf[i] = @field(op, field.name);
+        switch (field_ty) {
+            .Int => |int| {
+                switch (int.bits) {
+                    8 => bytes = 1,
+                    16 => bytes = 2,
+                    else => @compileError("type not supported `" ++ @typeName(field.type) ++ "`"),
+                }
+            },
+
+            .Enum => bytes = @sizeOf(field.type),
+
+            else => unreachable,
+        }
+
+        switch (bytes) {
+            1 => {
+                if (field_ty == .Enum) {
+                    buf[i] = @enumToInt(@field(op, field.name));
+                } else {
+                    buf[i] = @field(op, field.name);
+                }
                 i += 1;
             },
 
-            16 => {
+            2 => {
                 var k = @field(op, field.name);
                 if (native_endian == .Big)
                     @byteSwap(k);
@@ -229,14 +257,29 @@ fn parse_op(comptime T: type, buf: []const u8) !T {
 
     inline for (ty.Struct.fields) |field| {
         comptime var field_ty = @typeInfo(field.type);
+        comptime var bytes: comptime_int = 0;
 
-        switch (field_ty.Int.bits) {
-            8 => {
+        switch (field_ty) {
+            .Int => |int| {
+                switch (int.bits) {
+                    8 => bytes = 1,
+                    16 => bytes = 2,
+                    else => @compileError("type not supported `" ++ @typeName(field.type) ++ "`"),
+                }
+            },
+
+            .Enum => bytes = @sizeOf(field.type),
+
+            else => unreachable,
+        }
+
+        switch (bytes) {
+            1 => {
                 res[i] = buf[i];
                 i += 1;
             },
 
-            16 => {
+            2 => {
                 if (native_endian == .Big) {
                     res[i] = buf[i + 1];
                     res[i + 1] = buf[i];
@@ -247,7 +290,7 @@ fn parse_op(comptime T: type, buf: []const u8) !T {
                 i += 2;
             },
 
-            else => @compileError("unhandled bit field"),
+            else => {},
         }
     }
 
