@@ -1,6 +1,8 @@
 const std = @import("std");
 const code = @import("code.zig");
 
+const shellwords = @import("shellwords.zig").shellwords;
+
 pub const Prog = struct {
     const Self = @This();
 
@@ -21,9 +23,21 @@ pub const Prog = struct {
                 },
 
                 .append => |append| {
-                    const content = self.tab.entry(append.constant);
+                    switch (append.src) {
+                        .constant => {
+                            const content = self.tab.entry(append.constant);
 
-                    try writer.print("{X:0>4} append \"{s}\"\n", .{ addr, content });
+                            try writer.print("{X:0>4} append_const \"{s}\"\n", .{ addr, content });
+                        },
+
+                        .globals => {
+                            try writer.print("{X:0>4} append_global {}\n", .{ addr, append.constant });
+                        },
+                        .exports => {
+                            try writer.print("{X:0>4} append_export {}\n", .{ addr, append.constant });
+                        },
+                        .scratch => unreachable,
+                    }
                 },
 
                 .exit => {
@@ -47,6 +61,10 @@ pub const Prog = struct {
 
                 .get_scratch => {
                     try writer.print("{X:0>4} get_scratch\n", .{addr});
+                },
+
+                .exec_cmd => {
+                    try writer.print("{X:0>4} exec_cmd\n", .{addr});
                 },
             }
 
@@ -219,6 +237,42 @@ pub const Vm = struct {
                     self.sp += 1;
                 },
 
+                .exec_cmd => {
+                    if (self.sp == 0) {
+                        return Error.StackUnderflow;
+                    }
+
+                    self.sp -= 1;
+                    const atom = self.stack[self.sp];
+                    var args_buf: [256][]const u8 = undefined;
+                    var args = shellwords(atom.buf, &args_buf);
+
+                    const result = try std.ChildProcess.exec(.{
+                        .allocator = self.alloc,
+                        .argv = args,
+                    });
+
+                    if (!atom.stowed) {
+                        self.alloc.free(atom.buf);
+                    }
+
+                    const res = try self.alloc.alloc(u8, result.stdout.len);
+                    @memcpy(res, result.stdout);
+
+                    self.stack[self.sp] = Atom{
+                        .stowed = false,
+                        .alloc = self.alloc,
+                        .buf = res,
+                    };
+
+                    self.sp += 1;
+
+                    self.alloc.free(result.stdout);
+                    self.alloc.free(result.stderr);
+
+                    //unreachable;
+                },
+
                 .exit => return,
 
                 //else => unreachable,
@@ -282,15 +336,3 @@ pub const Atom = struct {
     alloc: std.mem.Allocator,
     buf: []u8,
 };
-
-//pub const Atom = union(enum) {
-//    bare: BareAtom,
-//    stored: StoreAtom,
-//};
-//
-//const BareAtom = struct {
-//    alloc: std.mem.Allocator,
-//    buf: []u8,
-//};
-//
-//const StoreAtom = struct {};

@@ -37,8 +37,8 @@ pub fn build(b: *std.Build) void {
     exe.addModule("git", git);
 
     exe.linkLibC();
-    exe.addIncludePath("/usr/local/include/");
-    exe.addLibraryPath("/usr/local/lib64/");
+    exe.addIncludePath(std.build.LazyPath{ .path = "/usr/local/include/" });
+    exe.addLibraryPath(std.build.LazyPath{ .path = "/usr/local/lib64/" });
     exe.linkSystemLibrary("libgit2");
 
     b.installArtifact(exe);

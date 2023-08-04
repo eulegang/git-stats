@@ -428,7 +428,7 @@ pub const Parser = struct {
                 lhs = try self.parse_infix(lhs);
             } else {
                 const level = Precedence.perc(token) orelse break;
-                if (@enumToInt(prec) >= @enumToInt(level)) {
+                if (@intFromEnum(prec) >= @intFromEnum(level)) {
                     break;
                 }
 

@@ -49,16 +49,8 @@ pub const Emitter = struct {
     }
 
     pub fn append_const(self: *Emitter, str: []const u8) !void {
-        const entry = self.entries.items.len;
-        const start = self.tab.items.len;
-
-        const inst = Inst{ .append = Op.Append{ .src = .constant, ._pad = 0, .constant = @truncate(u16, entry) } };
-
-        try self.tab.appendSlice(str);
-        try self.entries.append(Entry{
-            .ptr = @truncate(u16, start),
-            .len = @truncate(u16, str.len),
-        });
+        const entry = try self.push_const(str);
+        const inst = Inst{ .append = Op.Append{ .src = .constant, ._pad = 0, .constant = entry } };
 
         try self.push(inst);
     }
@@ -87,7 +79,7 @@ pub const Emitter = struct {
     pub fn add_export(self: *Emitter, name: []const u8) !u8 {
         const id = self.exports.items.len;
         try self.exports.append(name);
-        return @truncate(u8, id);
+        return @truncate(id);
     }
 
     pub fn set_export(self: *Emitter, id: u8) !void {
@@ -105,6 +97,11 @@ pub const Emitter = struct {
         try self.push(inst);
     }
 
+    pub fn exec_cmd(self: *Emitter) !void {
+        const inst = Inst{ .exec_cmd = Op.ExecCmd{} };
+        try self.push(inst);
+    }
+
     pub fn exit(self: *Emitter) !void {
         try self.push(Inst{ .exit = Op.Exit{} });
     }
@@ -114,5 +111,25 @@ pub const Emitter = struct {
         const size = inst.imprint(&buf);
 
         try self.code.appendSlice(buf[0..size]);
+    }
+
+    fn push_const(self: *Emitter, str: []const u8) !u16 {
+        for (self.entries.items, 0..) |entry, i| {
+            const item = self.tab.items[entry.ptr .. entry.ptr + entry.len];
+            if (std.mem.eql(u8, str, item)) {
+                return @truncate(i);
+            }
+        }
+
+        const entry = self.entries.items.len;
+        const start = self.tab.items.len;
+
+        try self.tab.appendSlice(str);
+        try self.entries.append(Entry{
+            .ptr = @as(u16, @truncate(start)),
+            .len = @as(u16, @truncate(str.len)),
+        });
+
+        return @as(u16, @truncate(entry));
     }
 };

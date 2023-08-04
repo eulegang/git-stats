@@ -13,6 +13,7 @@ pub const Op = enum {
     pub const GetGlobal = OpGetGlobal;
 
     pub const GetScratch = OpGetScratch;
+    pub const ExecCmd = OpExecCmd;
 
     clear,
     append,
@@ -22,6 +23,7 @@ pub const Op = enum {
     set_global,
     get_global,
     get_scratch,
+    exec_cmd,
 
     fn top() u8 {
         comptime var res = 0;
@@ -62,6 +64,7 @@ pub const Inst = union(Op) {
     set_global: Op.SetGlobal,
     get_global: Op.GetGlobal,
     get_scratch: Op.GetScratch,
+    exec_cmd: Op.ExecCmd,
 
     pub fn from(buf: []const u8) !Inst {
         if (buf.len < 1)
@@ -71,7 +74,7 @@ pub const Inst = union(Op) {
         if (byte > Op.top())
             return Error.InvalidInst;
 
-        var op = @intToEnum(Op, buf[0]);
+        var op: Op = @enumFromInt(buf[0]);
 
         switch (op) {
             .clear => return Inst{ .clear = try parse_op(OpClear, buf[1..]) },
@@ -82,6 +85,7 @@ pub const Inst = union(Op) {
             .set_global => return Inst{ .set_global = try parse_op(OpSetGlobal, buf[1..]) },
             .get_global => return Inst{ .get_global = try parse_op(OpGetGlobal, buf[1..]) },
             .get_scratch => return Inst{ .get_scratch = try parse_op(OpGetScratch, buf[1..]) },
+            .exec_cmd => return Inst{ .exec_cmd = try parse_op(OpExecCmd, buf[1..]) },
         }
     }
 
@@ -95,11 +99,12 @@ pub const Inst = union(Op) {
             .set_global => return 1 + @sizeOf(OpSetExport),
             .get_global => return 1 + @sizeOf(OpGetExport),
             .get_scratch => return 1 + @sizeOf(OpGetScratch),
+            .exec_cmd => return 1 + @sizeOf(OpExecCmd),
         }
     }
 
     pub fn imprint(self: Self, buf: []u8) usize {
-        buf[0] = @enumToInt(self);
+        buf[0] = @intFromEnum(self);
 
         switch (self) {
             .clear => |op| {
@@ -141,6 +146,11 @@ pub const Inst = union(Op) {
                 imprint_op(op, buf[1..]);
                 return 1 + @sizeOf(OpGetScratch);
             },
+
+            .exec_cmd => |op| {
+                imprint_op(op, buf[1..]);
+                return 1 + @sizeOf(OpExecCmd);
+            },
         }
     }
 };
@@ -174,6 +184,8 @@ const OpGetGlobal = packed struct {
 };
 
 const OpGetScratch = packed struct {};
+
+const OpExecCmd = packed struct {};
 
 const OpPush = packed struct {
     id: u16,
@@ -220,7 +232,7 @@ fn imprint_op(op: anytype, buf: []u8) void {
         switch (bytes) {
             1 => {
                 if (field_ty == .Enum) {
-                    buf[i] = @enumToInt(@field(op, field.name));
+                    buf[i] = @intFromEnum(@field(op, field.name));
                 } else {
                     buf[i] = @field(op, field.name);
                 }
@@ -232,7 +244,7 @@ fn imprint_op(op: anytype, buf: []u8) void {
                 if (native_endian == .Big)
                     @byteSwap(k);
 
-                var tmp = @bitCast([2]u8, k);
+                var tmp = @as([2]u8, @bitCast(k));
 
                 buf[i] = tmp[0];
                 i += 1;
@@ -294,5 +306,5 @@ fn parse_op(comptime T: type, buf: []const u8) !T {
         }
     }
 
-    return @bitCast(T, res);
+    return @as(T, @bitCast(res));
 }

@@ -38,8 +38,8 @@ test "disassembler" {
 
     const expected =
         \\0000 clear
-        \\0001 append "hello"
-        \\0006 append "world"
+        \\0001 append_const "hello"
+        \\0006 append_const "world"
         \\000B set_export 0
         \\000D exit
         \\
@@ -67,8 +67,8 @@ test "emitter" {
 
     const expected =
         \\0000 clear
-        \\0001 append "hello"
-        \\0006 append "world"
+        \\0001 append_const "hello"
+        \\0006 append_const "world"
         \\000B set_export 0
         \\000D exit
         \\
